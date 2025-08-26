@@ -9,7 +9,7 @@ import Student from './Student';
 import useBadges from './hooks/useBadges';
 import usePersistentState from './hooks/usePersistentState';
 import useTeachers from './hooks/useTeachers';
-import bcrypt from 'bcryptjs';
+import { hashPassword } from './utils/password';
 
 export default function Admin() {
   const [students, setStudents] = useStudents();
@@ -40,9 +40,10 @@ export default function Admin() {
 
   const addStudent = useCallback((name, email, password = '') => {
     const id = genId();
+    const passwordHash = password ? hashPassword(password) : '';
     setStudents((prev) => [
       ...prev,
-      { id, name, email: email || undefined, password, groupId: null, points: 0, badges: [] }
+      { id, name, email: email || undefined, passwordHash, groupId: null, points: 0, badges: [] }
     ]);
     return id;
   }, [setStudents]);
@@ -57,17 +58,34 @@ export default function Admin() {
     return id;
   }, [setGroups]);
 
-  const toggleStudentBadge = useCallback((studentId, badgeId, hasBadge) => {
-    if (!studentId || !badgeId) return;
-    setStudents((prev) =>
-      prev.map((s) => {
-        if (s.id !== studentId) return s;
-        const current = new Set(s.badges || []);
-        if (hasBadge) current.add(badgeId); else current.delete(badgeId);
-        return { ...s, badges: Array.from(current) };
-      })
-    );
-  }, [setStudents]);
+  const toggleStudentBadge = useCallback(
+    (studentId, badgeId, hasBadge) => {
+      if (!studentId || !badgeId) return;
+      setStudents((prev) =>
+        prev.map((s) => {
+          if (s.id !== studentId) return s;
+          const current = new Set(s.badges || []);
+          if (hasBadge) current.add(badgeId);
+          else current.delete(badgeId);
+          return { ...s, badges: Array.from(current) };
+        })
+      );
+      if (hasBadge) {
+        const badge = badgeDefs.find((b) => b.id === badgeId);
+        const award = {
+          id: genId(),
+          ts: Date.now(),
+          type: 'student',
+          targetId: studentId,
+          amount: 0,
+          reason: `Badge toegekend: ${badge?.title || badgeId}`,
+          badgeId,
+        };
+        setAwards((prev) => [award, ...prev].slice(0, 500));
+      }
+    },
+    [setStudents, setAwards, badgeDefs]
+  );
 
   const awardToStudent = useCallback((studentId, amount, reason) => {
     if (!studentId || !Number.isFinite(amount)) return;
@@ -91,7 +109,7 @@ export default function Admin() {
   const resetTeacherPassword = useCallback((id) => {
     const pwd = window.prompt('Nieuw wachtwoord:');
     if (!pwd?.trim()) return;
-    const hash = bcrypt.hashSync(pwd.trim(), 10);
+    const hash = hashPassword(pwd.trim());
     setTeachers((prev) =>
       prev.map((t) => (t.id === id ? { ...t, passwordHash: hash } : t))
     );
@@ -164,7 +182,7 @@ export default function Admin() {
     const code = Math.random().toString(36).slice(2, 8);
     setStudents((prev) =>
       prev.map((s) =>
-        s.id === resetStudentId ? { ...s, password: '', tempCode: code } : s
+        s.id === resetStudentId ? { ...s, passwordHash: '', tempCode: code } : s
       )
     );
     setResetCode(code);
@@ -229,7 +247,7 @@ export default function Admin() {
   }, [students, selectedStudentId, setSelectedStudentId]);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <Select value={page} onChange={setPage} className="max-w-xs">
         <option value="add-student">Student toevoegen</option>
         <option value="remove-student">Student verwijderen</option>
@@ -564,7 +582,7 @@ export default function Admin() {
               onClick={() => {
                 const email = newTeacherEmail.trim().toLowerCase();
                 if (teachers.some((t) => t.email.toLowerCase() === email)) return;
-                const hash = bcrypt.hashSync(newTeacherPassword.trim(), 10);
+                const hash = hashPassword(newTeacherPassword.trim());
                 setTeachers((prev) => [...prev, { id: genId(), email, passwordHash: hash }]);
                 setNewTeacherEmail('');
                 setNewTeacherPassword('');
@@ -773,6 +791,58 @@ export default function Admin() {
           </div>
         </Card>
       )}
+
+      <PendingAdmins />
     </div>
+  );
+}
+
+function PendingAdmins() {
+  const [teachers, setTeachers] = useTeachers();
+  const pendingTeachers = teachers.filter(t => !t.approved);
+
+  const handleApprove = (teacherId) => {
+    setTeachers(prev => prev.map(t => 
+      t.id === teacherId ? {...t, approved: true} : t
+    ));
+  };
+
+  const handleReject = (teacherId) => {
+    setTeachers(prev => prev.filter(t => t.id !== teacherId));
+  };
+
+  if (pendingTeachers.length === 0) {
+    return null;
+  }
+
+  return (
+    <Card title="Beheerders in afwachting van goedkeuring">
+      <div className="space-y-4">
+        {pendingTeachers.map(teacher => (
+          <div key={teacher.id} className="flex items-center justify-between p-4 border rounded-lg">
+            <div>
+              <div className="font-medium">{teacher.email}</div>
+              <div className="text-sm text-gray-500">
+                Aangevraagd op {new Date(teacher.createdAt).toLocaleDateString()}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                className="bg-green-600 text-white"
+                onClick={() => handleApprove(teacher.id)}
+              >
+                Goedkeuren
+              </Button>
+              <Button
+                className="bg-red-600 text-white"
+                onClick={() => handleReject(teacher.id)}
+              >
+                Afwijzen
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
   );
 }

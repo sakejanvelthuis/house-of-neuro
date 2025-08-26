@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 
 export function Card({ title, children, className = '' }) {
   return (
@@ -51,5 +51,29 @@ export function Select({ value, onChange, children, className = '', multiple = f
     >
       {children}
     </select>
+  );
+}
+
+export function Splash() {
+  const [show, setShow] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShow(false);
+    }, 2000);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (!show) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-white transition-opacity duration-500">
+      <img
+        src="/images/voorpagina.png"
+        alt="Welcome"
+        className="w-full h-full object-cover"
+      />
+    </div>
   );
 }
